@@ -7,6 +7,7 @@ KGS = {
     'HowNet': os.path.join(FILE_DIR_PATH, 'kgs/HowNet.spo'),
     'CnDbpedia': os.path.join(FILE_DIR_PATH, 'kgs/CnDbpedia.spo'),
     'Medical': os.path.join(FILE_DIR_PATH, 'kgs/Medical.spo'),
+    'CCKS':os.path.join(FILE_DIR_PATH, 'kgs/CCKS.spo'),
 }
 
 MAX_ENTITIES = 2
