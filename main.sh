@@ -1,9 +1,11 @@
 BERT_BASE_DIR=/home/yzhao/.cache/torch/transformers/bert-base-chinese/
+for FOLD_NB in {1..9}
+do
 
 #    --pretrained_model_path ${BERT_BASE_DIR}/pytorch_model.bin \
 #    --config_path ${BERT_BASE_DIR}/config.json \
 #    --vocab_path ${BERT_BASE_DIR}/vocab.txt \
-FOLD_NB=1
+
 CUDA_VISIBLE_DEVICES='3' nohup python3 -u run_kbert_ner.py \
     --commit_id 3dc5937\
     --task_name subtask1\
@@ -21,3 +23,5 @@ CUDA_VISIBLE_DEVICES='3' nohup python3 -u run_kbert_ner.py \
     --output_path ./outputs/$FOLD_NB/ \
     --tensorboard_dir ./outputs/$FOLD_NB/ \
     > ./outputs/$FOLD_NB/kbert_CCKS.log &
+
+done

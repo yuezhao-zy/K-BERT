@@ -40,4 +40,6 @@ def build_model(args):
     target = globals()[args.target.capitalize() + "Target"](args, len(args.vocab))
     model = Model(args, embedding, encoder, target, subencoder)
 
+    # print("model:",model)
+
     return model

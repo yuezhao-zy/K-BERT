@@ -15,12 +15,14 @@ from uer.utils.vocab import Vocab
 from uer.utils.seed import set_seed
 from uer.model_saver import save_model
 import numpy as np
-
+from save_log import  Save_Log
 from brain import KnowledgeGraph
-
+import datetime
+import os
+from tensorboardX import SummaryWriter
 
 class BertTagger(nn.Module):
-    def __init__(self, args, model):
+    def __init__(self, args, model): #传参传入了model
         super(BertTagger, self).__init__()
         self.embedding = model.embedding
         self.encoder = model.encoder
@@ -77,7 +79,7 @@ def main():
     # Path options.
     parser.add_argument("--pretrained_model_path", default=None, type=str,
                         help="Path of the pretrained model.")
-    parser.add_argument("--output_model_path", default="./models/tagger_model.bin", type=str,
+    parser.add_argument("--output_path", default="./models/tagger_model.bin", type=str,
                         help="Path of the output model.")
     parser.add_argument("--vocab_path", default="./models/google_vocab.txt", type=str,
                         help="Path of the vocabulary file.")
@@ -93,7 +95,7 @@ def main():
     # Model options.
     parser.add_argument("--batch_size", type=int, default=16,
                         help="Batch_size.")
-    parser.add_argument("--seq_length", default=256, type=int,
+    parser.add_argument("--seq_length", default=128, type=int,
                         help="Sequence length.")
     parser.add_argument("--encoder", choices=["bert", "lstm", "gru", \
                                                    "cnn", "gatedcnn", "attn", \
@@ -128,13 +130,24 @@ def main():
 
     # kg
     parser.add_argument("--kg_name", required=True, help="KG name or path")
-
+    parser.add_argument("--log_file",help='记录log信息')
+    parser.add_argument('--task_name',default=None,type=str)
+    parser.add_argument("--mode",default='regular',type=str)
+    parser.add_argument('--run_time',default=None,type=str)
+    parser.add_argument("--commit_id",default=None,type=str)
+    parser.add_argument("--fold_nb",default=0,type=str)
+    parser.add_argument("--tensorboard_dir",default=None)
     args = parser.parse_args()
+    args.run_time = datetime.datetime.today().strftime('%Y-%m-%d_%H-%M-%S')
 
     # Load the hyperparameters of the config file.
     args = load_hyperparam(args)
 
     set_seed(args.seed)
+
+    s = Save_Log(args)
+    os.makedirs(args.output_path,exist_ok=True)
+    writer = SummaryWriter(logdir=os.path.join(args.tensorboard_dir, "eval",'{}_{}_{}_{}'.format(args.task_name,args.fold_nb,args.run_time,args.commit_id)), comment="Linear")
 
     labels_map = {"[PAD]": 0, "[ENT]": 1}
     begin_ids = []
@@ -153,6 +166,8 @@ def main():
     
     print("Labels: ", labels_map)
     args.labels_num = len(labels_map)
+    id2label = {labels_map[key]:key for key in labels_map}
+    print("id2label:",id2label)
 
     # Load vocabulary.
     vocab = Vocab()
@@ -183,7 +198,9 @@ def main():
     
     # Build sequence labeling model.
     model = BertTagger(args, model)
+    # print("model:",model)
 
+    print("model bert Tagger:",model)
     # For simplicity, we use DataParallel wrapper to use multiple GPUs.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
@@ -248,7 +265,7 @@ def main():
         return dataset
 
     # Evaluation function.
-    def evaluate(args, is_test):
+    def evaluate(args,epoch, is_test):
         if is_test:
             dataset = read_dataset(args.test_path)
         else:
@@ -274,6 +291,10 @@ def main():
 
         confusion = torch.zeros(len(labels_map), len(labels_map), dtype=torch.long)
 
+        pred_labels = []
+        gold_labels = []
+        origin_tokens = []
+
         model.eval()
 
         for i, (input_ids_batch, label_ids_batch, mask_ids_batch, pos_ids_batch, vm_ids_batch, tag_ids_batch) in enumerate(batch_loader(batch_size, input_ids, label_ids, mask_ids, pos_ids, vm_ids, tag_ids)):
@@ -284,9 +305,32 @@ def main():
             pos_ids_batch = pos_ids_batch.to(device)
             tag_ids_batch = tag_ids_batch.to(device)
             vm_ids_batch = vm_ids_batch.long().to(device)
-
+            # print("batch size:",batch_size)
             loss, _, pred, gold = model(input_ids_batch, label_ids_batch, mask_ids_batch, pos_ids_batch, vm_ids_batch)
-            
+            # print(pred.size(),gold.size())
+            # print("pred:",pred)
+            # print("gold:",gold)
+
+            """
+            pred: tensor([2, 2, 2,  ..., 2, 2, 2], device='cuda:0')
+            gold: tensor([2, 2, 2,  ..., 0, 0, 0], device='cuda:0')
+
+            """
+            # print("input id batch:",input_ids_batch.size())
+            for input_ids in input_ids_batch:
+                for id in input_ids:
+                    origin_tokens.append(vocab.i2w[id])
+            for p,g in zip(pred,gold):
+
+                pred_labels.append(id2label[int(p)] )
+                gold_labels.append(id2label[int(g)])
+
+            # pred_labels.append(pred)
+
+            # gold_labels.append(gold)
+            # print("pred label",pred_labels)
+            # print("gold label:",gold_labels)
+
             for j in range(gold.size()[0]):
                 if gold[j].item() in begin_ids:
                     gold_entities_num += 1
@@ -340,6 +384,22 @@ def main():
         r = correct/gold_entities_num
         f1 = 2*p*r/(p+r)
         print("{:.3f}, {:.3f}, {:.3f}".format(p,r,f1))
+        writer.add_scalar("Eval/precision", p, epoch)
+        writer.add_scalar("Eval/recall", r, epoch)
+        writer.add_scalar("Eval/f1_score", f1, epoch)
+
+        with open(os.path.join(args.output_path,'pred_label_test_{}.txt').format(is_test),'w',encoding='utf-8') as file:
+            i = 0
+            while i < len(pred_labels):
+                len_ = args.seq_length
+                if('[PAD]' in origin_tokens[i:i+args.seq_length]):
+                    len_ = origin_tokens[i:i+args.seq_length].index('[PAD]')
+                file.write(' '.join(origin_tokens[i:i+len_]))
+                # print("pred:",pred_labels[i:i+len_])
+                file.write('\t'+' '.join(pred_labels[i:i+len_]))
+                file.write('\t'+' '.join(gold_labels[i:i+len_])+'\n')
+
+                i += args.seq_length
 
         return f1
 
@@ -391,6 +451,8 @@ def main():
             total_loss += loss.item()
             if (i + 1) % args.report_steps == 0:
                 print("Epoch id: {}, Training steps: {}, Avg loss: {:.3f}".format(epoch, i+1, total_loss / args.report_steps))
+                writer.add_scalar("Train/loss",total_loss / args.report_steps, (epoch+1)*(i+1))
+
                 total_loss = 0.
 
             loss.backward()
@@ -398,13 +460,13 @@ def main():
 
         # Evaluation phase.
         print("Start evaluate on dev dataset.")
-        f1 = evaluate(args, False)
-        print("Start evaluation on test dataset.")
-        evaluate(args, True)
+        f1 = evaluate(args, epoch,False)
+        # print("Start evaluation on test dataset.")
+        # evaluate(args, True)
 
         if f1 > best_f1:
             best_f1 = f1
-            save_model(model, args.output_model_path)
+            save_model(model, os.path.join(args.output_path,'{}.bin').format(args.task_name))
         else:
             continue
 
@@ -412,12 +474,13 @@ def main():
     print("Final evaluation on test dataset.")
 
     if torch.cuda.device_count() > 1:
-        model.module.load_state_dict(torch.load(args.output_model_path))
+        model.module.load_state_dict(torch.load(os.path.join(args.output_path,"{}.bin".format(args.task_name))))
     else:
-        model.load_state_dict(torch.load(args.output_model_path))
+        model.load_state_dict(torch.load(os.path.join(args.output_path,"{}.bin".format(args.task_name))))
 
-    evaluate(args, True)
+    evaluate(args,args.epochs_num, True)
 
 
 if __name__ == "__main__":
     main()
+
