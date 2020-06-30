@@ -289,6 +289,10 @@ def main():
         gold_entities_num = 0
         pred_entities_num = 0
 
+        by_type_correct = {}
+        by_type_gold_nb = {}
+        by_type_pred_nb = {}
+
         confusion = torch.zeros(len(labels_map), len(labels_map), dtype=torch.long)
 
         pred_labels = []
@@ -334,10 +338,19 @@ def main():
             for j in range(gold.size()[0]):
                 if gold[j].item() in begin_ids:
                     gold_entities_num += 1
+                    if(gold[j].item() not in by_type_gold_nb):
+                        by_type_gold_nb[gold[j].item()] = 1
+                    else:
+                        by_type_gold_nb[gold[j].item()] += 1
+
  
             for j in range(pred.size()[0]):
                 if pred[j].item() in begin_ids and gold[j].item() != labels_map["[PAD]"]:
                     pred_entities_num += 1
+                    if (pred[j].item() not in by_type_pred_nb):
+                        by_type_pred_nb[pred[j].item()] = 1
+                    else:
+                        by_type_pred_nb[pred[j].item()] += 1
 
             pred_entities_pos = []
             gold_entities_pos = []
@@ -346,6 +359,9 @@ def main():
             for j in range(gold.size()[0]):
                 if gold[j].item() in begin_ids:
                     start = j
+                    type = gold[j].item()
+                    # print("gold j item:",gold[j].item())
+
                     for k in range(j+1, gold.size()[0]):
                         
                         if gold[k].item() == labels_map['[ENT]']:
@@ -356,11 +372,12 @@ def main():
                             break
                     else:
                         end = gold.size()[0] - 1
-                    gold_entities_pos.append((start, end))
+                    gold_entities_pos.append((start, end,type))
             
             for j in range(pred.size()[0]):
                 if pred[j].item() in begin_ids and gold[j].item() != labels_map["[PAD]"] and gold[j].item() != labels_map["[ENT]"]:
                     start = j
+                    type = pred[j].item()
                     for k in range(j+1, pred.size()[0]):
 
                         if gold[k].item() == labels_map['[ENT]']:
@@ -371,13 +388,17 @@ def main():
                             break
                     else:
                         end = pred.size()[0] - 1
-                    pred_entities_pos.append((start, end))
+                    pred_entities_pos.append((start, end,type))
 
             for entity in pred_entities_pos:
                 if entity not in gold_entities_pos:
                     continue
                 else: 
                     correct += 1
+                    if(entity[2] not in by_type_correct):
+                        by_type_correct[entity[2]] = 1
+                    else:
+                        by_type_correct[entity[2]] += 1
 
         print("Report precision, recall, and f1:")
         p = correct/pred_entities_num
@@ -387,6 +408,15 @@ def main():
         writer.add_scalar("Eval/precision", p, epoch)
         writer.add_scalar("Eval/recall", r, epoch)
         writer.add_scalar("Eval/f1_score", f1, epoch)
+
+        for type in by_type_correct:
+            p = by_type_correct[type] / by_type_pred_nb[type]
+            r = by_type_correct[type] / by_type_gold_nb[type]
+            f1 = 2 * p * r / (p + r)
+            print("{}:{:.3f}, {:.3f}, {:.3f}".format(id2label[type[2:]],p, r, f1))
+            writer.add_scalar("Eval/precision_{}".format(id2label[type[2:]]), p, epoch)
+            writer.add_scalar("Eval/recall_{}".format(id2label[type[2:]]), r, epoch)
+            writer.add_scalar("Eval/f1_score_{}".format(id2label[type[2:]]), f1, epoch)
 
         with open(os.path.join(args.output_path,'pred_label_test_{}.txt').format(is_test),'w',encoding='utf-8') as file:
             i = 0
@@ -432,12 +462,12 @@ def main():
     total_loss = 0.
     f1 = 0.0
     best_f1 = 0.0
-
+    total_step = 0
     for epoch in range(1, args.epochs_num+1):
         model.train()
         for i, (input_ids_batch, label_ids_batch, mask_ids_batch, pos_ids_batch, vm_ids_batch, tag_ids_batch) in enumerate(batch_loader(batch_size, input_ids, label_ids, mask_ids, pos_ids, vm_ids, tag_ids)):
             model.zero_grad()
-
+            total_step += 1
             input_ids_batch = input_ids_batch.to(device)
             label_ids_batch = label_ids_batch.to(device)
             mask_ids_batch = mask_ids_batch.to(device)
@@ -451,7 +481,7 @@ def main():
             total_loss += loss.item()
             if (i + 1) % args.report_steps == 0:
                 print("Epoch id: {}, Training steps: {}, Avg loss: {:.3f}".format(epoch, i+1, total_loss / args.report_steps))
-                writer.add_scalar("Train/loss",total_loss / args.report_steps, (epoch+1)*(i+1))
+                writer.add_scalar("Train/loss",total_loss / args.report_steps, total_step)
 
                 total_loss = 0.
 
