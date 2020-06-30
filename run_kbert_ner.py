@@ -146,6 +146,7 @@ def main():
     set_seed(args.seed)
 
     s = Save_Log(args)
+    print(args)
     os.makedirs(args.output_path,exist_ok=True)
     writer = SummaryWriter(logdir=os.path.join(args.tensorboard_dir, "eval",'{}_{}_{}_{}'.format(args.task_name,args.fold_nb,args.run_time,args.commit_id)), comment="Linear")
 
@@ -266,6 +267,7 @@ def main():
 
     # Evaluation function.
     def evaluate(args,epoch, is_test):
+        f1 = 0
         if is_test:
             dataset = read_dataset(args.test_path)
         else:
@@ -400,23 +402,27 @@ def main():
                     else:
                         by_type_correct[entity[2]] += 1
 
-        print("Report precision, recall, and f1:")
-        p = correct/pred_entities_num
-        r = correct/gold_entities_num
-        f1 = 2*p*r/(p+r)
-        print("{:.3f}, {:.3f}, {:.3f}".format(p,r,f1))
-        writer.add_scalar("Eval/precision", p, epoch)
-        writer.add_scalar("Eval/recall", r, epoch)
-        writer.add_scalar("Eval/f1_score", f1, epoch)
 
-        for type in by_type_correct:
-            p = by_type_correct[type] / by_type_pred_nb[type]
-            r = by_type_correct[type] / by_type_gold_nb[type]
+
+        if(not is_test):
+
+            print("Report precision, recall, and f1:")
+            p = correct / pred_entities_num
+            r = correct / gold_entities_num
             f1 = 2 * p * r / (p + r)
-            print("{}:{:.3f}, {:.3f}, {:.3f}".format(id2label[type[2:]],p, r, f1))
-            writer.add_scalar("Eval/precision_{}".format(id2label[type[2:]]), p, epoch)
-            writer.add_scalar("Eval/recall_{}".format(id2label[type[2:]]), r, epoch)
-            writer.add_scalar("Eval/f1_score_{}".format(id2label[type[2:]]), f1, epoch)
+            print("{:.3f}, {:.3f}, {:.3f}".format(p, r, f1))
+            writer.add_scalar("Eval/precision", p, epoch)
+            writer.add_scalar("Eval/recall", r, epoch)
+            writer.add_scalar("Eval/f1_score", f1, epoch)
+
+            for type in by_type_correct:
+                p = by_type_correct[type] / by_type_pred_nb[type]
+                r = by_type_correct[type] / by_type_gold_nb[type]
+                f1 = 2 * p * r / (p + r)
+                print("{}:{:.3f}, {:.3f}, {:.3f}".format(id2label[type][2:], p, r, f1))
+                writer.add_scalar("Eval/precision_{}".format(id2label[type][2:]), p, epoch)
+                writer.add_scalar("Eval/recall_{}".format(id2label[type][2:]), r, epoch)
+                writer.add_scalar("Eval/f1_score_{}".format(id2label[type][2:]), f1, epoch)
 
         with open(os.path.join(args.output_path,'pred_label_test_{}.txt').format(is_test),'w',encoding='utf-8') as file:
             i = 0
