@@ -20,6 +20,8 @@ from brain import KnowledgeGraph
 import datetime
 import os
 from tensorboardX import SummaryWriter
+from my_logging import init_logger
+
 
 class BertTagger(nn.Module):
     def __init__(self, args, model): #传参传入了model
@@ -146,7 +148,10 @@ def main():
     set_seed(args.seed)
 
     s = Save_Log(args)
+    logger = init_logger(args.log_file)
+
     print(args)
+    logger.info(args)
     os.makedirs(args.output_path,exist_ok=True)
     writer = SummaryWriter(logdir=os.path.join(args.tensorboard_dir, "eval",'{}_{}_{}_{}'.format(args.task_name,args.fold_nb,args.run_time,args.commit_id)), comment="Linear")
 
@@ -166,10 +171,11 @@ def main():
                     labels_map[l] = len(labels_map)
     
     print("Labels: ", labels_map)
+    logger.info(labels_map)
     args.labels_num = len(labels_map)
     id2label = {labels_map[key]:key for key in labels_map}
     print("id2label:",id2label)
-
+    logger.info(id2label)
     # Load vocabulary.
     vocab = Vocab()
     vocab.load(args.vocab_path)
@@ -201,7 +207,7 @@ def main():
     model = BertTagger(args, model)
     # print("model:",model)
 
-    print("model bert Tagger:",model)
+    # print("model bert Tagger:",model)
     # For simplicity, we use DataParallel wrapper to use multiple GPUs.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
@@ -407,9 +413,11 @@ def main():
         if(not is_test):
 
             print("Report precision, recall, and f1:")
+            logger.info("Report precision, recall, and f1:")
             p = correct / pred_entities_num
             r = correct / gold_entities_num
             f1 = 2 * p * r / (p + r)
+            logger.info("{:.3f}, {:.3f}, {:.3f}".format(p, r, f1))
             print("{:.3f}, {:.3f}, {:.3f}".format(p, r, f1))
             writer.add_scalar("Eval/precision", p, epoch)
             writer.add_scalar("Eval/recall", r, epoch)
@@ -420,6 +428,7 @@ def main():
                 r = by_type_correct[type] / by_type_gold_nb[type]
                 f1 = 2 * p * r / (p + r)
                 print("{}:{:.3f}, {:.3f}, {:.3f}".format(id2label[type][2:], p, r, f1))
+                logger.info("{}:{:.3f}, {:.3f}, {:.3f}".format(id2label[type][2:], p, r, f1))
                 writer.add_scalar("Eval/precision_{}".format(id2label[type][2:]), p, epoch)
                 writer.add_scalar("Eval/recall_{}".format(id2label[type][2:]), r, epoch)
                 writer.add_scalar("Eval/f1_score_{}".format(id2label[type][2:]), f1, epoch)
@@ -441,6 +450,7 @@ def main():
 
     # Training phase.
     print("Start training.")
+    logger.info("Start training.")
     instances = read_dataset(args.train_path)
 
     input_ids = torch.LongTensor([ins[0] for ins in instances])
@@ -454,8 +464,10 @@ def main():
     batch_size = args.batch_size
     train_steps = int(instances_num * args.epochs_num / batch_size) + 1
 
+    logger.info("Batch size: {}".format(batch_size))
     print("Batch size: ", batch_size)
     print("The number of training instances:", instances_num)
+    logger.info("The number of training instances:{}".format(instances_num))
 
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'gamma', 'beta']
@@ -496,6 +508,7 @@ def main():
 
         # Evaluation phase.
         print("Start evaluate on dev dataset.")
+        logger.info("Start evaluate on dev dataset.")
         f1 = evaluate(args, epoch,False)
         # print("Start evaluation on test dataset.")
         # evaluate(args, True)
@@ -508,7 +521,7 @@ def main():
 
     # Evaluation phase.
     print("Final evaluation on test dataset.")
-
+    logger.info("Final evaluation on test dataset.")
     if torch.cuda.device_count() > 1:
         model.module.load_state_dict(torch.load(os.path.join(args.output_path,"{}.bin".format(args.task_name))))
     else:
@@ -516,7 +529,9 @@ def main():
 
     evaluate(args,args.epochs_num, True)
 
+    print("============over=================={}".format(args.fold_nb))
+
+    
 
 if __name__ == "__main__":
     main()
-
