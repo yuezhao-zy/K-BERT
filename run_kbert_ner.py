@@ -28,6 +28,9 @@ class BertTagger(nn.Module):
         super(BertTagger, self).__init__()
         self.embedding = model.embedding
         self.encoder = model.encoder
+
+
+
         self.target = model.target
         self.labels_num = args.labels_num
         self.output_layer = nn.Linear(args.hidden_size, self.labels_num)
