@@ -309,7 +309,7 @@ def main():
                 p.data.normal_(0, 0.02)
     
     # Build sequence labeling model.
-    model = BertTagger_with_LSTMCRF(args, model)
+    model = BertTagger(args, model)
     # print("model:",model)
 
     # print("model bert Tagger:",model)

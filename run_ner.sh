@@ -9,8 +9,8 @@ BERT_BASE_DIR=/home/yzhao/.cache/torch/transformers/bert-base-chinese/
 #    --vocab_path ${BERT_BASE_DIR}/v ocab.txt \
 #    --test_path ./datasets/CCKS/subtask1/test_kbert_126.txt \
 FOLD_NB=0
-CUDA_VISIBLE_DEVICES='3'   python3 -u run_kbert_ner.py \
-    --commit_id f1707cc\
+CUDA_VISIBLE_DEVICES='0'   python3 -u run_kbert_ner.py \
+    --commit_id baf4e7f\
     --task_name subtask1\
     --mode debug\
     --fold_nb $FOLD_NB\
@@ -23,6 +23,6 @@ CUDA_VISIBLE_DEVICES='3'   python3 -u run_kbert_ner.py \
     --test_path ./datasets/CCKS/subtask1/test_kbert_126.txt \
     --log_file ./outputs/$FOLD_NB/\
     --epochs_num 1 --batch_size 8 --kg_name CCKS \
-    --output_path ./outputs/$FOLD_NB/ \
+    --output_path ./outputs/$FOLD_NB/debug \
     --tensorboard_dir ./outputs/$FOLD_NB/ \
 
