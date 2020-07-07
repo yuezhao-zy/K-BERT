@@ -21,6 +21,11 @@ import datetime
 import os
 from tensorboardX import SummaryWriter
 from my_logging import init_logger
+import torch
+
+import torch.functional as F
+from torchcrf import CRF
+
 
 
 class BertTagger(nn.Module):
@@ -47,18 +52,30 @@ class BertTagger(nn.Module):
             correct: Number of labels that are predicted correctly.
             predict: Predicted label.
             label: Gold label.
+        example:
+            src size: torch.Size([8, 128])
+            output size: torch.Size([8, 128, 768])
+            output size: torch.Size([8, 128, 15])
+            output size: torch.Size([1024, 15])
+            output size: torch.Size([1024, 15])
+            label size: torch.Size([1024, 1])
+            onehot size: torch.Size([1024, 15])
         """
         # Embedding.
         emb = self.embedding(src, mask, pos)
         # Encoder.
         output = self.encoder(emb, mask, vm)
+
         # Target.
         output = self.output_layer(output)
 
+
         output = output.contiguous().view(-1, self.labels_num)
+
         output = self.softmax(output)
 
         label = label.contiguous().view(-1,1)
+
         label_mask = (label > 0).float().to(torch.device(label.device))
         one_hot = torch.zeros(label_mask.size(0),  self.labels_num). \
                   to(torch.device(label.device)). \
@@ -70,14 +87,95 @@ class BertTagger(nn.Module):
         numerator = torch.sum(label_mask * numerator)
         denominator = torch.sum(label_mask) + 1e-6
         loss = numerator / denominator
+        print("output size:",output.size())
         predict = output.argmax(dim=-1)
+        print("predict size:",predict.size())
+        print("label size:",label.size())
         correct = torch.sum(
             label_mask * (predict.eq(label)).float()
         )
-        
+        print("correct size:",correct.size())
+        exit(0)#
         return loss, correct, predict, label
 
+class BertTagger_with_LSTMCRF(nn.Module):
+    def __init__(self, args, model):  # 传参传入了model
+        super(BertTagger_with_LSTMCRF, self).__init__()
+        self.embedding = model.embedding
+        self.encoder = model.encoder
+        self.target = model.target
+        self.args = args
+        self.need_birnn = args.need_birnn
+        self.labels_num = args.labels_num
+        out_dim = args.hidden_size
 
+        # 如果为False，则不要BiLSTM层
+        if self.need_birnn:
+            self.birnn = nn.LSTM(args.hidden_size, args.rnn_dim, num_layers=1, bidirectional=True, batch_first=True)
+            out_dim = args.rnn_dim * 2
+
+        self.output_layer = nn.Linear(out_dim, self.labels_num)
+        self.dropout = nn.Dropout(args.dropout)
+
+        self.crf = CRF(args.labels_num, batch_first=True)
+
+
+
+    def forward(self, src, label, mask, pos=None, vm=None):
+        """
+        Args:
+            src: [batch_size x seq_length]
+            label: [batch_size x seq_length]
+            mask: [batch_size x seq_length]
+        Returns:
+            loss: Sequence labeling loss.
+            correct: Number of labels that are predicted correctly.
+            predict: Predicted label.
+            label: Gold label.
+        example:
+            src size: torch.Size([8, 128])
+            output size: torch.Size([8, 128, 768])
+            output size: torch.Size([8, 128, 256])
+            output size: torch.Size([8, 128, 256])
+            output size: torch.Size([8, 128, 15])
+            output size: torch.Size([8, 128])
+            output size: torch.Size([1024, 1])
+            label size: torch.Size([1024, 1])
+            label size: torch.Size([1024])
+
+        """
+        # Embedding.
+        emb = self.embedding(src, mask, pos)
+        # Encoder.
+        output = self.encoder(emb, mask, vm)
+        if(self.need_birnn):
+            output, _ = self.birnn(output)
+
+        # Target.
+        output = self.dropout(output)
+
+        output = self.output_layer(output)
+
+        loss = -1*self.crf(output,label, mask=mask.byte())
+        output = torch.LongTensor(np.array(self.crf.decode(output))).to(self.args.device)
+
+        output = output.contiguous().view(-1, 1)
+
+        label = label.contiguous().view(-1, 1)
+
+        label_mask = (label > 0).float().to(torch.device(label.device))
+
+
+
+        label_mask = label_mask.contiguous().view(-1)
+        label = label.contiguous().view(-1)
+        predict = output.contiguous().view(-1)
+        correct = torch.sum(
+            label_mask * (predict.eq(label)).float()
+        ) #torch nb
+
+        return loss, correct, predict, label
+#
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -142,6 +240,10 @@ def main():
     parser.add_argument("--commit_id",default=None,type=str)
     parser.add_argument("--fold_nb",default=0,type=str)
     parser.add_argument("--tensorboard_dir",default=None)
+
+    parser.add_argument("--need_birnn",default=True,type=bool)
+    parser.add_argument("--rnn_dim",default=128,type=int)
+
     args = parser.parse_args()
     args.run_time = datetime.datetime.today().strftime('%Y-%m-%d_%H-%M-%S')
 
@@ -207,7 +309,7 @@ def main():
                 p.data.normal_(0, 0.02)
     
     # Build sequence labeling model.
-    model = BertTagger(args, model)
+    model = BertTagger_with_LSTMCRF(args, model)
     # print("model:",model)
 
     # print("model bert Tagger:",model)
@@ -218,6 +320,7 @@ def main():
         model = nn.DataParallel(model)
 
     model = model.to(device)
+    args.device = device
 
     # Datset loader.
     def batch_loader(batch_size, input_ids, label_ids, mask_ids, pos_ids, vm_ids, tag_ids):

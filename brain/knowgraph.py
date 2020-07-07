@@ -16,7 +16,6 @@ class KnowledgeGraph(object):
     def __init__(self, spo_files, predicate=False):
         self.predicate = predicate
         self.spo_file_paths = [config.KGS.get(f, f) for f in spo_files]
-        print("spo file path:",self.spo_file_paths)
         self.lookup_table = self._create_lookup_table()
         self.segment_vocab = list(self.lookup_table.keys()) + config.NEVER_SPLIT_TAG
         self.tokenizer = pkuseg.pkuseg(model_name="default", postag=False, user_dict=self.segment_vocab)
@@ -49,6 +48,16 @@ class KnowledgeGraph(object):
                 position_batch - list of position index of each character.
                 visible_matrix_batch - list of visible matrixs
                 seg_batch - list of segment tags
+        example:
+                sent batch: ['#患者入院前3+天患者受凉后感咽痛，并咳嗽，痰液较少，偶咳出少许白色粘痰，无痰中带血，并畏寒发热，体温未测，无胸痛，无胸骨后压榨感，无明显心累，无上肢浮肿，入院前1天患者在乘坐公交车时，突发晕倒一次，起病前感头晕，无黑朦，症状持续1分钟右左，']
+                split_sent_batch: [['#', '患者', '入院', '前', '3', '+', '天患者', '受凉', '后', '感', '咽', '痛', '，', '并', '咳嗽', '，', '痰液', '较', '少', '，', '偶咳', '出', '少许', '白色', '粘', '并', '畏寒', '发热', '，', '体温', '未测', '，', '无', '胸', '痛', '，', '无', '胸骨后', '压榨感', '，', '无', '明显', '心', '累', '，', '无', '上肢', '浮肿', '，', '入院', '前', ''，', '突发', '晕倒', '一', '次', '，', '起病', '前感', '头', '晕', '，', '无', '黑朦', '，', '症状', '持续', '1', '分钟', '右左', '，']]
+                token: 咽    entities: ['解剖部位']
+                token: 胸    entities: ['解剖部位']
+                token: 胸骨后  entities: ['解剖部位']
+                token: 心    entities: ['解剖部位']
+                token: 上肢   entities: ['解剖部位']
+                token: 头    entities: ['解剖部位']
+
         """
         split_sent_batch = [self.tokenizer.cut(sent) for sent in sent_batch]
         know_sent_batch = []
@@ -56,7 +65,6 @@ class KnowledgeGraph(object):
         visible_matrix_batch = []
         seg_batch = []
         for split_sent in split_sent_batch:
-
             # create tree
             sent_tree = []
             pos_idx_tree = []
@@ -65,7 +73,6 @@ class KnowledgeGraph(object):
             abs_idx = -1
             abs_idx_src = []
             for token in split_sent:
-
                 entities = list(self.lookup_table.get(token, []))[:max_entities]
                 sent_tree.append((token, entities))
 
@@ -142,6 +149,5 @@ class KnowledgeGraph(object):
             position_batch.append(pos)
             visible_matrix_batch.append(visible_matrix)
             seg_batch.append(seg)
-        
         return know_sent_batch, position_batch, visible_matrix_batch, seg_batch
 
