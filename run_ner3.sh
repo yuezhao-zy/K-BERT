@@ -10,8 +10,10 @@ BERT_BASE_DIR=/home/yzhao/.cache/torch/transformers/bert-base-chinese/
 #    --test_path ./datasets/CCKS/subtask1/test_kbert_126.txt \ d
 TASK_NAME=bertlstmcrf
 
-for FOLD_NB in {0..9}
-do
+#for FOLD_NB in {7..7}
+#FOLD_NB = 7
+#do
+FOLD_NB=9
 CUDA_VISIBLE_DEVICES='3'   nohup python3 -u run_kbert_ner.py \
     --commit_id 5311a28\
     --task_name $TASK_NAME\
@@ -31,4 +33,4 @@ CUDA_VISIBLE_DEVICES='3'   nohup python3 -u run_kbert_ner.py \
     --model_name bertcrf\
     --need_birnn True\
     > ./outputs/$FOLD_NB/$TASK_NAME/$TASK_NAME.log
-done
+#done

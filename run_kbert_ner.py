@@ -87,15 +87,12 @@ class BertTagger(nn.Module):
         numerator = torch.sum(label_mask * numerator)
         denominator = torch.sum(label_mask) + 1e-6
         loss = numerator / denominator
-        print("output size:",output.size())
+
         predict = output.argmax(dim=-1)
-        print("predict size:",predict.size())
-        print("label size:",label.size())
+
         correct = torch.sum(
             label_mask * (predict.eq(label)).float()
         )
-        print("correct size:",correct.size())
-        exit(0)#
         return loss, correct, predict, label
 
 class BertTagger_with_LSTMCRF(nn.Module):
@@ -241,8 +238,10 @@ def main():
     parser.add_argument("--fold_nb",default=0,type=str)
     parser.add_argument("--tensorboard_dir",default=None)
 
-    parser.add_argument("--need_birnn",default=True,type=bool)
+    parser.add_argument("--need_birnn",default=False,type=bool)
     parser.add_argument("--rnn_dim",default=128,type=int)
+    parser.add_argument("--model_name",default='bert',type=str)
+    parser.add_argument("--pku_model_name",default='default',type=str)
 
     args = parser.parse_args()
     args.run_time = datetime.datetime.today().strftime('%Y-%m-%d_%H-%M-%S')
@@ -257,6 +256,7 @@ def main():
 
     print(args)
     logger.info(args)
+
     os.makedirs(args.output_path,exist_ok=True)
     writer = SummaryWriter(logdir=os.path.join(args.tensorboard_dir, "eval",'{}_{}_{}_{}'.format(args.task_name,args.fold_nb,args.run_time,args.commit_id)), comment="Linear")
 
@@ -291,7 +291,7 @@ def main():
         spo_files = []
     else:
         spo_files = [args.kg_name]
-    kg = KnowledgeGraph(spo_files=spo_files, predicate=False)
+    kg = KnowledgeGraph(spo_files=spo_files,pku_model_name= args.pku_model_name,predicate=False)
 
     # Build bert model.
     # A pseudo target is added.
@@ -309,7 +309,12 @@ def main():
                 p.data.normal_(0, 0.02)
     
     # Build sequence labeling model.
-    model = BertTagger(args, model)
+    if(args.model_name=='bert'):
+    # model = BertTagger_with_LSTMCRF(args, model)
+        model = BertTagger(args, model)
+    elif(args.model_name == 'bertcrf'):
+        model = BertTagger_with_LSTMCRF(args, model)
+    logger.info(model)
     # print("model:",model)
 
     # print("model bert Tagger:",model)
@@ -604,7 +609,9 @@ def main():
                 loss = torch.mean(loss)
             total_loss += loss.item()
             if (i + 1) % args.report_steps == 0:
-                print("Epoch id: {}, Training steps: {}, Avg loss: {:.3f}".format(epoch, i+1, total_loss / args.report_steps))
+
+                logger.info("Epoch id: {}, Training steps: {}, Avg loss: {:.3f}".format(epoch, i+1, total_loss / args.report_steps))
+
                 writer.add_scalar("Train/loss",total_loss / args.report_steps, total_step)
 
                 total_loss = 0.
@@ -641,3 +648,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # dir_path = os.path.dirname(os.path.realpath(__file__))
+    # for i in range(0,10):
+    #     os.makedirs(os.path.join(dir_path,'outputs/{}/bert_bs16'.format(i)))
+    #
+    pass
