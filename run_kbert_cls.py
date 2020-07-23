@@ -118,6 +118,10 @@ def add_knowledge_worker(params):
                 text_a, text_b = line[columns["text_a"]], line[columns["text_b"]]
                 text = CLS_TOKEN + text_a + SEP_TOKEN + text_b + SEP_TOKEN
 
+                # def add_knowledge_with_vm(self, sent_batch, max_entities=config.MAX_ENTITIES, add_pad=True,
+                #                           max_length=128):
+
+
                 tokens, pos, vm, _ = kg.add_knowledge_with_vm([text], add_pad=True, max_length=args.seq_length)
                 tokens = tokens[0]
                 pos = pos[0]

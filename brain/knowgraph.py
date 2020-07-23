@@ -60,6 +60,7 @@ class KnowledgeGraph(object):
 
         """
         split_sent_batch = [self.tokenizer.cut(sent) for sent in sent_batch]
+
         know_sent_batch = []
         position_batch = []
         visible_matrix_batch = []

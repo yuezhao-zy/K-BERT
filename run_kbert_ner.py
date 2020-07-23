@@ -242,6 +242,10 @@ def main():
     parser.add_argument("--rnn_dim",default=128,type=int)
     parser.add_argument("--model_name",default='bert',type=str)
     parser.add_argument("--pku_model_name",default='default',type=str)
+    parser.add_argument("--has_token",default=False)
+
+    parser.add_argument("--do_train",default=False,type=bool)
+    parser.add_argument("--do_test",default=True,type=bool)
 
     args = parser.parse_args()
     args.run_time = datetime.datetime.today().strftime('%Y-%m-%d_%H-%M-%S')
@@ -355,17 +359,27 @@ def main():
             tokens, labels = [], []
             for line_id, line in enumerate(f):
                 tokens, labels = line.strip().split("\t")
-
+                # print("token:",tokens)
+                # print("label:",labels)
+                # print("len tokens:",len(tokens.split(' ')),"len labels:",len(labels.split(' ')))
                 text = ''.join(tokens.split(" "))
+                # print("len text:",len(text))
                 tokens, pos, vm, tag = kg.add_knowledge_with_vm([text], add_pad=True, max_length=args.seq_length)
                 tokens = tokens[0]
+                # print("len2 text:",len(tokens),"len label:",len(labels))
+
                 pos = pos[0]
                 vm = vm[0].astype("bool")
                 tag = tag[0]
 
                 tokens = [vocab.get(t) for t in tokens]
                 labels = [labels_map[l] for l in labels.split(" ")]
+                # print("len3 text:",len(tokens),"len label:",len(labels))
+
                 mask = [1] * len(tokens)
+                # print('tokens:',tokens)
+                # print("label:",labels)
+                # assert len(tokens) == len(labels),(len(tokens),len(labels))
 
                 new_labels = []
                 j = 0
@@ -544,7 +558,8 @@ def main():
                 writer.add_scalar("Eval/recall_{}".format(id2label[type][2:]), r, epoch)
                 writer.add_scalar("Eval/f1_score_{}".format(id2label[type][2:]), f1, epoch)
 
-        with open(os.path.join(args.output_path,'pred_label_test_{}.txt').format(is_test),'w',encoding='utf-8') as file:
+        with open(os.path.join(args.output_path,'pred_label_test1_{}.txt').format(is_test),'w',encoding='utf-8') as file:
+            print("!!!!!!!! saving in ",os.path.join(args.output_path,'pred_label_test1_{}.txt'))
             i = 0
             while i < len(pred_labels):
                 len_ = args.seq_length
@@ -560,91 +575,97 @@ def main():
         return f1
 
     # Training phase.
-    print("Start training.")
-    logger.info("Start training.")
-    instances = read_dataset(args.train_path)
+    print("args train test:",args.do_train,args.do_test)
+    if(args.do_train):
+        print("Start training.")
+        logger.info("Start training.")
+        instances = read_dataset(args.train_path)
 
-    input_ids = torch.LongTensor([ins[0] for ins in instances])
-    label_ids = torch.LongTensor([ins[1] for ins in instances])
-    mask_ids = torch.LongTensor([ins[2] for ins in instances])
-    pos_ids = torch.LongTensor([ins[3] for ins in instances])
-    vm_ids = torch.BoolTensor([ins[4] for ins in instances])
-    tag_ids = torch.LongTensor([ins[5] for ins in instances])
+        input_ids = torch.LongTensor([ins[0] for ins in instances])
+        label_ids = torch.LongTensor([ins[1] for ins in instances])
+        mask_ids = torch.LongTensor([ins[2] for ins in instances])
+        pos_ids = torch.LongTensor([ins[3] for ins in instances])
+        vm_ids = torch.BoolTensor([ins[4] for ins in instances])
+        tag_ids = torch.LongTensor([ins[5] for ins in instances])
 
-    instances_num = input_ids.size(0)
-    batch_size = args.batch_size
-    train_steps = int(instances_num * args.epochs_num / batch_size) + 1
+        instances_num = input_ids.size(0)
+        batch_size = args.batch_size
+        train_steps = int(instances_num * args.epochs_num / batch_size) + 1
 
-    logger.info("Batch size: {}".format(batch_size))
-    print("Batch size: ", batch_size)
-    print("The number of training instances:", instances_num)
-    logger.info("The number of training instances:{}".format(instances_num))
+        logger.info("Batch size: {}".format(batch_size))
+        print("Batch size: ", batch_size)
+        print("The number of training instances:", instances_num)
+        logger.info("The number of training instances:{}".format(instances_num))
 
-    param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'gamma', 'beta']
-    optimizer_grouped_parameters = [
-                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
-                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
-    ]
-    optimizer = BertAdam(optimizer_grouped_parameters, lr=args.learning_rate, warmup=args.warmup, t_total=train_steps)
+        param_optimizer = list(model.named_parameters())
+        no_decay = ['bias', 'gamma', 'beta']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+             'weight_decay_rate': 0.01},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
+        ]
+        optimizer = BertAdam(optimizer_grouped_parameters, lr=args.learning_rate, warmup=args.warmup,
+                             t_total=train_steps)
 
-    total_loss = 0.
-    f1 = 0.0
-    best_f1 = 0.0
-    total_step = 0
-    for epoch in range(1, args.epochs_num+1):
-        model.train()
-        for i, (input_ids_batch, label_ids_batch, mask_ids_batch, pos_ids_batch, vm_ids_batch, tag_ids_batch) in enumerate(batch_loader(batch_size, input_ids, label_ids, mask_ids, pos_ids, vm_ids, tag_ids)):
-            model.zero_grad()
-            total_step += 1
-            input_ids_batch = input_ids_batch.to(device)
-            label_ids_batch = label_ids_batch.to(device)
-            mask_ids_batch = mask_ids_batch.to(device)
-            pos_ids_batch = pos_ids_batch.to(device)
-            tag_ids_batch = tag_ids_batch.to(device)
-            vm_ids_batch = vm_ids_batch.long().to(device)
+        total_loss = 0.
+        f1 = 0.0
+        best_f1 = 0.0
+        total_step = 0
+        for epoch in range(1, args.epochs_num + 1):
+            print("Epoch ", epoch)
+            model.train()
+            for i, (
+            input_ids_batch, label_ids_batch, mask_ids_batch, pos_ids_batch, vm_ids_batch, tag_ids_batch) in enumerate(
+                    batch_loader(batch_size, input_ids, label_ids, mask_ids, pos_ids, vm_ids, tag_ids)):
+                model.zero_grad()
+                total_step += 1
+                input_ids_batch = input_ids_batch.to(device)
+                label_ids_batch = label_ids_batch.to(device)
+                mask_ids_batch = mask_ids_batch.to(device)
+                pos_ids_batch = pos_ids_batch.to(device)
+                tag_ids_batch = tag_ids_batch.to(device)
+                vm_ids_batch = vm_ids_batch.long().to(device)
 
-            loss, _, _, _ = model(input_ids_batch, label_ids_batch, mask_ids_batch, pos_ids_batch, vm_ids_batch)
-            if torch.cuda.device_count() > 1:
-                loss = torch.mean(loss)
-            total_loss += loss.item()
-            if (i + 1) % args.report_steps == 0:
+                loss, _, _, _ = model(input_ids_batch, label_ids_batch, mask_ids_batch, pos_ids_batch, vm_ids_batch)
+                if torch.cuda.device_count() > 1:
+                    loss = torch.mean(loss)
+                total_loss += loss.item()
+                if (i + 1) % args.report_steps == 0:
+                    logger.info("Epoch id: {}, Training steps: {}, Avg loss: {:.3f}".format(epoch, i + 1,
+                                                                                            total_loss / args.report_steps))
 
-                logger.info("Epoch id: {}, Training steps: {}, Avg loss: {:.3f}".format(epoch, i+1, total_loss / args.report_steps))
+                    writer.add_scalar("Train/loss", total_loss / args.report_steps, total_step)
 
-                writer.add_scalar("Train/loss",total_loss / args.report_steps, total_step)
+                    total_loss = 0.
 
-                total_loss = 0.
+                loss.backward()
+                optimizer.step()
 
-            loss.backward()
-            optimizer.step()
+            # Evaluation phase.
+            print("Start evaluate on dev dataset.")
+            logger.info("Start evaluate on dev dataset.")
+            f1 = evaluate(args, epoch, False)
+            # print("Start evaluation on test dataset.")
+            # evaluate(args, True)
 
+            if f1 > best_f1:
+                best_f1 = f1
+                save_model(model, os.path.join(args.output_path, '{}.bin').format(args.task_name))
+            else:
+                continue
+
+    if(args.do_test):
         # Evaluation phase.
-        print("Start evaluate on dev dataset.")
-        logger.info("Start evaluate on dev dataset.")
-        f1 = evaluate(args, epoch,False)
-        # print("Start evaluation on test dataset.")
-        # evaluate(args, True)
-
-        if f1 > best_f1:
-            best_f1 = f1
-            save_model(model, os.path.join(args.output_path,'{}.bin').format(args.task_name))
+        print("Final evaluation on test dataset.")
+        logger.info("Final evaluation on test dataset.")
+        if torch.cuda.device_count() > 1:
+            model.module.load_state_dict(torch.load(os.path.join(args.output_path, "{}.bin".format(args.task_name))))
         else:
-            continue
+            model.load_state_dict(torch.load(os.path.join(args.output_path, "{}.bin".format(args.task_name))))
 
-    # Evaluation phase.
-    print("Final evaluation on test dataset.")
-    logger.info("Final evaluation on test dataset.")
-    if torch.cuda.device_count() > 1:
-        model.module.load_state_dict(torch.load(os.path.join(args.output_path,"{}.bin".format(args.task_name))))
-    else:
-        model.load_state_dict(torch.load(os.path.join(args.output_path,"{}.bin".format(args.task_name))))
+        evaluate(args, args.epochs_num, True)
 
-    evaluate(args,args.epochs_num, True)
-
-    print("============over=================={}".format(args.fold_nb))
-
-    
+        print("============over=================={}".format(args.fold_nb))
 
 if __name__ == "__main__":
     main()
